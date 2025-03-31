@@ -16,37 +16,55 @@ class ShoppingScreen extends StatefulWidget {
 class _ShoppingScreenState extends State<ShoppingScreen> {
   List<GroceryItem> _groceryList = [];
   var _isLoading = true;
+  String? _error;
 
   void _loadItems() async {
     final url = Uri.https(
       'shopping-list-app-4022d-default-rtdb.firebaseio.com',
       'shopping-list.json',
     );
-    final response = await http.get(url);
-    final Map<String, dynamic> listData = json.decode(response.body);
-    final List<GroceryItem> loadedItems = [];
+    try {
+      final response = await http.get(url);
+      if (response.statusCode >= 400) {
+        setState(() {
+          _error = "Failed to fetch data. Try again later.";
+        });
+      }
+      if (response.body == 'null') {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      final Map<String, dynamic> listData = json.decode(response.body);
+      final List<GroceryItem> loadedItems = [];
 
-    for (final item in listData.entries) {
-      final category =
-          categories.entries
-              .firstWhere(
-                (catItems) => catItems.value.type == item.value['category'],
-              )
-              .value;
+      for (final item in listData.entries) {
+        final category =
+            categories.entries
+                .firstWhere(
+                  (catItems) => catItems.value.type == item.value['category'],
+                )
+                .value;
 
-      loadedItems.add(
-        GroceryItem(
-          id: item.key,
-          name: item.value['name'],
-          quantity: item.value['quantity'],
-          category: category,
-        ),
-      );
+        loadedItems.add(
+          GroceryItem(
+            id: item.key,
+            name: item.value['name'],
+            quantity: item.value['quantity'],
+            category: category,
+          ),
+        );
+      }
+      setState(() {
+        _groceryList = loadedItems;
+        _isLoading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = 'Something went wrong. Try again later.';
+      });
     }
-    setState(() {
-      _groceryList = loadedItems;
-      _isLoading = false;
-    });
   }
 
   @override
@@ -67,15 +85,40 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
     });
   }
 
-  void _removeItem(GroceryItem item) {
+  void _removeItem(GroceryItem item) async {
+    final index = _groceryList.indexOf(item);
     setState(() {
       _groceryList.remove(item);
     });
+    final url = Uri.https(
+      'shopping-list-app-4022d-default-rtdb.firebaseio.com',
+      'shopping-list/${item.id}.json',
+    );
+
+    final response = await http.delete(url);
+    if (response.statusCode >= 400) {
+      setState(() {
+        _groceryList.insert(index, item);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          // padding: EdgeInsets.all(12),
+          content: Text(
+            'Error occured. Can not delete the item.',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.black,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    Widget activeScreen = Center(child: Text('Nothing Here...'));
+    Widget activeScreen = Center(
+      child: Text('Nothing Here..., Add some items.'),
+    );
 
     if (_isLoading) {
       activeScreen = const Center(child: CircularProgressIndicator());
@@ -109,7 +152,9 @@ class _ShoppingScreenState extends State<ShoppingScreen> {
         },
       );
     }
-
+    if (_error != null) {
+      activeScreen = Center(child: Text(_error!));
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text('Your Groceries'),
